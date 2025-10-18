@@ -1,0 +1,12 @@
+[package]
+name = "fileserver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rwfs = { version = "0.1.0", path = "src/rwfs" }
+protocol = { version = "0.1.0", path = "src/protocol" }
+parser = { version = "0.1.0", path = "src/parser" }
+netw = { version = "0.1.0", path = "src/netw"}
+bytel = { version = "0.1.0", path = "src/bytel" }
+protocol_spec = { version = "0.1.0", path = "src/protocol_spec" }
