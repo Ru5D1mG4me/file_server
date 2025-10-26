@@ -41,7 +41,7 @@ impl From<FSError> for Error {
     }
 }
 
-pub struct FileChunkReader {
+pub struct FileChunkReader { // TODO optimum
     reader: BufReader<File>,
 }
 
@@ -78,12 +78,12 @@ impl Iterator for FileChunkReader {
     }
 }
 
-pub struct FileChunkWriter {
+pub struct FileChunkWriter { // TODO optimum
     writer: BufWriter<File>,
 }
 
 impl FileChunkWriter {
-    pub fn new(path_str: &String) -> Result<Self, FSError> { // Rewrite error handling
+    pub fn new(path_str: &String) -> Result<Self, FSError> { // TODO Rewrite error handling
         let path = Path::new(&path_str);
         if path.extension().is_none() {
             return Err(FSError::NotAFile);

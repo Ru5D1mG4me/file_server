@@ -1,3 +1,4 @@
+pub const FILE_CHUNK_SIZE: u16 = 65535;
 pub const EOF: u8 = 0x00;
 
 #[repr(u8)]
@@ -28,7 +29,7 @@ impl TryFrom<u8> for PacketMethod {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FieldType {
-    OperationID = 0x10,
+    SessionID = 0x10,
     ChunkID = 0x11,
     ChunksCount = 0x12,
     ChunkSize = 0x13,
@@ -46,7 +47,7 @@ impl TryFrom<u8> for FieldType {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
-            0x10 => Ok(FieldType::OperationID),
+            0x10 => Ok(FieldType::SessionID),
             0x11 => Ok(FieldType::ChunkID),
             0x12 => Ok(FieldType::ChunksCount),
             0x13 => Ok(FieldType::ChunkSize),

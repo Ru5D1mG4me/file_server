@@ -1,36 +1,38 @@
 use std::collections::HashSet;
-use std::io::{Error, ErrorKind};
-use packet::{Packet, PacketField};
-use protocol_spec::{FieldType, PacketMethod, EOF};
+use super::errors::ParseError;
+use super::enums::{PacketMethod, FieldType, EOF};
 
-#[derive(Debug)]
-pub enum ParseError {
-    NotValidHeaderLength,
-    NotValidFieldLength,
-    NotValidFieldDataLength,
-    NotValidFieldsCount,
-    NotValidMethod,
-    NotValidFieldType,
-    DuplicateFieldFound,
+pub struct PacketField {
+    field_type: u8,
+    field_data_length: u16,
+    field_data: Vec<u8>,
 }
 
-impl From<ParseError> for Error {
-    fn from(error: ParseError) -> Error {
-        match error {
-            ParseError::NotValidHeaderLength => Error::new(ErrorKind::Other, "Invalid header length"),
-            ParseError::NotValidFieldLength => Error::new(ErrorKind::Other, "Invalid field length"),
-            ParseError::NotValidFieldDataLength => Error::new(ErrorKind::Other, "Invalid field data length"),
-            ParseError::NotValidFieldsCount => Error::new(ErrorKind::Other, "Invalid fields count"),
-            ParseError::NotValidMethod => Error::new(ErrorKind::Other, "Invalid method"),
-            ParseError::NotValidFieldType => Error::new(ErrorKind::Other, "Invalid field type"),
-            ParseError::DuplicateFieldFound => Error::new(ErrorKind::Other, "Duplicate field found"),
-        }
+impl PacketField {
+    pub fn new(field_type: u8, field_data_length: u16, field_data: Vec<u8>) -> Self {
+        PacketField{ field_type, field_data_length, field_data }
     }
+
+    pub fn get_field_type(&self) -> u8 {
+        self.field_type
+    }
+    pub fn get_field_data_length(&self) -> u16 {
+        self.field_data_length
+    }
+    pub fn get_field_data(&self) -> &[u8] { &self.field_data[..] }
 }
 
-pub struct Parser {}
+pub struct Packet {
+    method: u8,
+    fields_count: u8,
+    fields: Vec<PacketField>,
+}
 
-impl Parser {
+impl Packet {
+    pub fn new(method: u8, fields_count: u8, fields: Vec<PacketField>) -> Self {
+        Packet { method, fields_count, fields}
+    }
+
     pub fn parse(raw_data: &[u8]) -> Result<Packet, ParseError> {
         if raw_data.len() < 2 {
             return Err(ParseError::NotValidHeaderLength);
@@ -38,7 +40,7 @@ impl Parser {
 
         let mut i = 0;
         let method: u8 = raw_data[i]; i += 1;
-        if PacketMethod::try_from(method).is_err() {
+        if PacketMethod::try_from(method).is_err() { // TODO maybe not needed
             return Err(ParseError::NotValidMethod);
         }
 
@@ -52,7 +54,7 @@ impl Parser {
             }
 
             let field_type: u8 = raw_data[i]; i += 1;
-            if FieldType::try_from(field_type).is_err() {
+            if FieldType::try_from(field_type).is_err() { // TODO maybe not needed
                 return Err(ParseError::NotValidFieldType);
             }
 
@@ -104,4 +106,8 @@ impl Parser {
 
         bytes
     }
+
+    pub fn get_method(&self) -> u8 { self.method }
+    pub fn get_fields_count(&self) -> u8 { self.fields_count }
+    pub fn get_fields(&self) -> &Vec<PacketField> { &self.fields }
 }
