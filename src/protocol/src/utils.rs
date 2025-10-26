@@ -1,30 +1,5 @@
-use std::io::{Error, ErrorKind};
 use std::result::Result;
-
-#[derive(Debug)]
-pub enum UtilError {
-    ASCIIParseError,
-    NumberParseError,
-    UIntOverflow,
-}
-
-impl From<UtilError> for Error {
-    fn from(error: UtilError) -> Error {
-        match error {
-            UtilError::ASCIIParseError => Error::new(ErrorKind::Other, "Not printable or Non-ASCII characters"),
-            UtilError::NumberParseError => Error::new(ErrorKind::Other, "Not number symbol"),
-            UtilError::UIntOverflow => Error::new(ErrorKind::Other, "Unsigned integer overflow"),
-        }
-    }
-}
-
-fn ceil(num1: u64, num2: u64) -> u32 {
-    if num1 % num2 != 0 {
-        return (num1 / num2 + 1) as u32;
-    }
-
-    (num1 / num2) as u32
-}
+use super::errors::UtilError;
 
 pub fn parse_u64(bytes: &[u8]) -> Result<u64, UtilError> {
     if bytes.len() > 20 || (bytes.len() == 20 && bytes[0] > 0x31) {

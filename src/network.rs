@@ -1,6 +1,7 @@
-use std::io::{Error, ErrorKind, Read, Write};
-use std::net::{Shutdown, TcpListener, TcpStream};
+use std::io::{Error, ErrorKind};
+use std::net::{SocketAddr, UdpSocket};
 use std::result::Result;
+// use std::time::Duration;
 
 #[derive(Debug)]
 pub enum NetworkError {
@@ -8,9 +9,12 @@ pub enum NetworkError {
     ConnectionFailed,
     ConnectionAborted,
     SendFailed,
+    NotAllDataSent,
     ReceiveFailed,
     CloseFailed,
     InvalidPacket,
+    SetTimeoutFailed,
+    CloneFailed,
 }
 
 impl From<NetworkError> for Error {
@@ -20,63 +24,58 @@ impl From<NetworkError> for Error {
             NetworkError::ConnectionFailed => Error::new(ErrorKind::Other, "Connection failed"),
             NetworkError::ConnectionAborted => Error::new(ErrorKind::ConnectionAborted, "Connection aborted"),
             NetworkError::SendFailed => Error::new(ErrorKind::Other, "Send failed"),
+            NetworkError::NotAllDataSent => Error::new(ErrorKind::Other, "Not all data sent"),
             NetworkError::ReceiveFailed => Error::new(ErrorKind::Other, "Receive failed"),
             NetworkError::CloseFailed => Error::new(ErrorKind::Other, "Close failed"),
-            NetworkError::InvalidPacket => Error::new(ErrorKind::Other, "Invalid packet")
+            NetworkError::InvalidPacket => Error::new(ErrorKind::Other, "Invalid packet"),
+            NetworkError::SetTimeoutFailed => Error::new(ErrorKind::Other, "Set timeout failed"),
+            NetworkError::CloneFailed => Error::new(ErrorKind::Other, "Clone failed"),
         }
     }
 }
 
 pub struct Server {
-    listener: TcpListener,
+    socket: UdpSocket,
 }
 
 impl Server {
     pub fn new(port: &str) -> Result<Self, NetworkError> {
         let addr = "0.0.0.0:".to_string() + port;
-        let listener = TcpListener::bind(addr).map_err(|_| NetworkError::BindFailed)?;
-        Ok(Server { listener })
+        let socket = UdpSocket::bind(addr).map_err(|_| NetworkError::BindFailed)?;
+        // socket.set_read_timeout(Some(Duration::from_secs(5))).map_err(|_| NetworkError::SetTimeoutFailed)?;
+        Ok(Server { socket })
     }
 
     pub fn accept(&self) -> Result<Client, NetworkError> {
-        let (stream, _) = self.listener.accept().map_err(|_| NetworkError::ConnectionFailed)?;
-        Ok(Client::new(stream))
+        let mut buf = [0u8; 1];
+        let (_, addr) = self.socket.recv_from(&mut buf).map_err(|_| NetworkError::ReceiveFailed)?;
+        let client = Client::new(self.socket.try_clone().
+            map_err(|_| NetworkError::CloneFailed)?, addr)?;
+        Ok(client)
     }
+
 }
 
 pub struct Client {
-    stream: TcpStream,
+    socket: UdpSocket,
+    peer_addr: SocketAddr,
 }
 
 impl Client {
-    pub fn new(stream: TcpStream) -> Self {
-        Client { stream }
+    fn new(socket: UdpSocket, peer_addr: SocketAddr) -> Result<Self, NetworkError> {
+        socket.connect(peer_addr).map_err(|_| NetworkError::ConnectionFailed)?;
+        Ok(Client { socket, peer_addr })
     }
 
-    pub fn send(&mut self, data: &[u8]) -> Result<(), NetworkError> {
-        match self.stream.write_all(data) {
-            Ok(_) => Ok(()),
-            Err(error) => match error.kind() {
-                ErrorKind::ConnectionAborted => Err(NetworkError::ConnectionAborted),
-                _ => Err(NetworkError::ReceiveFailed),
-            }
-        }
+    pub fn send(&mut self, data: &[u8]) -> Result<usize, NetworkError> {
+        self.socket.send(&data).map_err(|_| NetworkError::SendFailed)
     }
 
-    pub fn receive(&mut self, size: u32) -> Result<Vec<u8>, NetworkError> {
-        let mut buffer = vec![0u8; size as usize]; // TODO best idea with sizing
-        let n = match self.stream.read(&mut buffer) {
-            Ok(value) => value,
-            Err(error) => return match error.kind() {
-                ErrorKind::ConnectionAborted => Err(NetworkError::ConnectionAborted),
-                _ => Err(NetworkError::ReceiveFailed),
-            }
-        };
-        buffer.truncate(n);
-        Ok(buffer)
+    pub fn recv(&mut self, buffer: &mut [u8]) -> Result<usize, NetworkError> {
+        self.socket.recv(buffer).map_err(|_| NetworkError::ReceiveFailed)
     }
 
-    pub fn close(&mut self) -> Result<(), NetworkError> {
-        self.stream.shutdown(Shutdown::Both).map_err(|_| NetworkError::CloseFailed)
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.peer_addr
     }
 }

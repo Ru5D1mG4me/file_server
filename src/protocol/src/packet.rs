@@ -19,7 +19,7 @@ impl PacketField {
     pub fn get_field_data_length(&self) -> u16 {
         self.field_data_length
     }
-    pub fn get_field_data(&self) -> &[u8] { &self.field_data[..] }
+    pub fn get_field_data(&self) -> &[u8] { &self.field_data }
 }
 
 pub struct Packet {
@@ -40,13 +40,13 @@ impl Packet {
 
         let mut i = 0;
         let method: u8 = raw_data[i]; i += 1;
-        if PacketMethod::try_from(method).is_err() { // TODO maybe not needed
+        if PacketMethod::try_from(method).is_err() {
             return Err(ParseError::NotValidMethod);
         }
 
         let fields_count: u8 = raw_data[i]; i += 1;
         let mut fields: Vec<PacketField> = Vec::with_capacity(fields_count as usize);
-        let mut seen_types: HashSet<u8> = HashSet::new();
+        let mut seen_types: HashSet<u8> = HashSet::with_capacity(fields_count as usize);
 
         for _ in 0..fields_count {
             if i + 3 > raw_data.len() {
@@ -54,12 +54,12 @@ impl Packet {
             }
 
             let field_type: u8 = raw_data[i]; i += 1;
-            if FieldType::try_from(field_type).is_err() { // TODO maybe not needed
+            if FieldType::try_from(field_type).is_err() {
                 return Err(ParseError::NotValidFieldType);
             }
 
             if !seen_types.insert(field_type) {
-                return Err(ParseError::NotValidFieldType);
+                return Err(ParseError::DuplicateFieldFound);
             }
 
             let mut field_data_length = u16::from_be_bytes([raw_data[i], raw_data[i + 1]]); i += 2;
@@ -80,27 +80,27 @@ impl Packet {
             fields.push(PacketField::new(field_type, field_data_length, field_data));
         }
 
-        if i < raw_data.len() {
+        if (i + 1) < raw_data.len() {
             return Err(ParseError::NotValidFieldsCount);
         }
 
         Ok(Packet::new(method, fields_count, fields))
     }
 
-    pub fn get_bytes(packet: &Packet) -> Vec<u8> {
+    pub fn get_bytes(&self) -> Vec<u8> {
         let mut size: usize = 2;
-        for i in 0..packet.get_fields().len() {
-            size += 3 + 1 + packet.get_fields()[i].get_field_data_length() as usize;
+        for i in 0..self.get_fields().len() {
+            size += 3 + 1 + self.get_fields()[i].get_field_data_length() as usize;
         }
 
         let mut bytes = Vec::with_capacity(size);
-        bytes.push(packet.get_method());
-        bytes.push(packet.get_fields().len() as u8);
+        bytes.push(self.get_method());
+        bytes.push(self.get_fields().len() as u8);
 
-        for i in 0..packet.get_fields().len() {
-            bytes.push(packet.get_fields()[i].get_field_type());
-            bytes.extend_from_slice(&(packet.get_fields()[i].get_field_data_length() + 1).to_be_bytes());
-            bytes.extend_from_slice(&packet.get_fields()[i].get_field_data());
+        for i in 0..self.get_fields().len() {
+            bytes.push(self.get_fields()[i].get_field_type());
+            bytes.extend_from_slice(&(self.get_fields()[i].get_field_data_length() + 1).to_be_bytes());
+            bytes.extend_from_slice(&self.get_fields()[i].get_field_data());
             bytes.push(EOF);
         }
 

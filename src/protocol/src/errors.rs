@@ -24,3 +24,20 @@ impl From<ParseError> for Error {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum UtilError {
+    ASCIIParseError,
+    NumberParseError,
+    UIntOverflow,
+}
+
+impl From<UtilError> for Error {
+    fn from(error: UtilError) -> Error {
+        match error {
+            UtilError::ASCIIParseError => Error::new(ErrorKind::Other, "Not printable or Non-ASCII characters"),
+            UtilError::NumberParseError => Error::new(ErrorKind::Other, "Not number symbol"),
+            UtilError::UIntOverflow => Error::new(ErrorKind::Other, "Unsigned integer overflow"),
+        }
+    }
+}
