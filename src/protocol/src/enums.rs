@@ -39,9 +39,8 @@ pub enum FieldType {
     Command = 0x15,
     Path = 0x16,
     Status = 0x17,
-    CRC = 0x18,
-    FileSize = 0x19,
-    ErrorMsg = 0x1A,
+    FileSize = 0x18,
+    ErrorMsg = 0x19,
 }
 
 impl TryFrom<u8> for FieldType {
@@ -57,9 +56,8 @@ impl TryFrom<u8> for FieldType {
             0x15 => Ok(FieldType::Command),
             0x16 => Ok(FieldType::Path),
             0x17 => Ok(FieldType::Status),
-            0x18 => Ok(FieldType::CRC),
-            0x19 => Ok(FieldType::FileSize),
-            0x1A => Ok(FieldType::ErrorMsg),
+            0x18 => Ok(FieldType::FileSize),
+            0x19 => Ok(FieldType::ErrorMsg),
             _ => Err(()),
         }
     }
@@ -73,6 +71,7 @@ pub enum FieldStatus {
     Received = 0x22,
     Error = 0x23,
     Ok = 0x24,
+    Retry = 0x25,
 }
 
 #[repr(u8)]

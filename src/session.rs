@@ -4,7 +4,9 @@ use super::filesystem::{remove_file, FileChunkReader, FileChunkWriter};
 use super::utils::ceil;
 use protocol::context::ProtocolContext;
 use protocol::enums::{FILE_CHUNK_SIZE, Action as ProtocolAction, NextAction as ProtocolNextAction};
-use protocol::{proceed_error, proceed_request};
+use protocol::{proceed_error, proceed_request, proceed_retry};
+use crc32fast::hash;
+use super::cypher::Cypher;
 
 enum Action {
     Continue,
@@ -19,6 +21,7 @@ enum SessionState {
 
 pub struct Session {
     client: Client,
+    cypher: Cypher,
     ctx: ProtocolContext,
     state: SessionState,
 
@@ -27,19 +30,37 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(client: Client, session_id: u8) -> Session {
-        Session { client, ctx: ProtocolContext::new(session_id), state: SessionState::None, new_request: true,
-            request: Vec::new() }
+    pub fn new(client: Client, session_id: u8, cypher: Cypher) -> Session {
+        Session { client, cypher, ctx: ProtocolContext::new(session_id),
+            state: SessionState::None, new_request: true, request: Vec::new() }
     }
 
-    fn handle_send_error(&mut self) -> Action {
-        println!("Error: {}", self.ctx.get_err_msg());
-        if let Err(error) = self.client.send(self.ctx.get_response()) {
+    fn encrypted_response(&mut self) -> Vec<u8> {
+        match self.cypher.encrypt(self.ctx.get_response()) {
+            Ok(encrypted_data) => encrypted_data,
+            Err(_) => panic!("Error encrypting response"),
+        }
+    }
+
+    fn encrypted_response_with_crc(&mut self) -> Vec<u8> {
+        let encrypted_data = &self.encrypted_response()[..];
+        let crc = hash(encrypted_data);
+        [&crc.to_be_bytes()[..], encrypted_data].concat()
+    }
+
+    fn send_response(&mut self) -> Action {
+        let response = self.encrypted_response_with_crc();
+        if let Err(error) = self.client.send(&response) {
             println!("Error while sending response: {}", Error::from(error).to_string());
             return Action::Break;
         }
 
         Action::Continue
+    }
+
+    fn handle_send_error(&mut self) -> Action {
+        println!("Error: {}", self.ctx.get_err_msg());
+        self.send_response()
     }
     fn handle_fileinfo_write(&mut self) -> Action {
         let writer = match FileChunkWriter::new(self.ctx.get_file_path()) {
@@ -49,13 +70,7 @@ impl Session {
                 println!("Error: {}", err_msg);
                 self.ctx.set_err_msg(err_msg);
                 proceed_error(&mut self.ctx);
-
-                if let Err(error) = self.client.send(self.ctx.get_response()) {
-                    println!("Error while sending response: {}", Error::from(error).to_string());
-                    return Action::Break;
-                };
-
-                return Action::Continue;
+                return self.send_response();
             }
         };
         self.state = SessionState::Writing(writer);
@@ -76,13 +91,7 @@ impl Session {
                 println!("Error: {}", err_msg);
                 self.ctx.set_err_msg(err_msg);
                 proceed_error(&mut self.ctx);
-
-                if let Err(error) = self.client.send(self.ctx.get_response()) {
-                    println!("Error while sending response: {}", Error::from(error).to_string());
-                    return Action::Break;
-                };
-
-                return Action::Continue;
+                return self.send_response();
             }
         };
 
@@ -93,13 +102,7 @@ impl Session {
                 println!("Error: {}", err_msg);
                 self.ctx.set_err_msg(err_msg);
                 proceed_error(&mut self.ctx);
-
-                if let Err(error) = self.client.send(self.ctx.get_response()) {
-                    println!("Error while sending response: {}", Error::from(error).to_string());
-                    return Action::Break;
-                };
-
-                return Action::Continue;
+                return self.send_response();
             }
         };
         self.state = SessionState::Reading(reader);
@@ -113,20 +116,16 @@ impl Session {
     }
 
     fn handle_terminate(&mut self) -> Action {
-        if let Err(error) = self.client.send(self.ctx.get_response()) {
-            println!("Error while sending response: {}", Error::from(error).to_string());
-        };
-
-        // Drop client
-
-        Action::Break
+        match self.send_response() {
+            Action::Break => Action::Break,
+            Action::Continue => Action::Break,
+        }
     }
 
     fn handle_read_data(&mut self) -> Action {
-        if let Err(error) = self.client.send(self.ctx.get_response()) {
-            println!("Error while sending response: {}", Error::from(error).to_string());
+        if let Action::Break = self.send_response() {
             return Action::Break;
-        };
+        }
 
         if let SessionState::Reading(reader) = &mut self.state {
             if let Some(value) = reader.next() {
@@ -137,13 +136,7 @@ impl Session {
                         println!("Error: {}", err_msg);
                         self.ctx.set_err_msg(err_msg);
                         proceed_error(&mut self.ctx);
-
-                        if let Err(error) = self.client.send(self.ctx.get_response()) {
-                            println!("Error while sending response: {}", Error::from(error).to_string());
-                            return Action::Break;
-                        };
-
-                        return Action::Continue;
+                        return self.send_response();
                     }
                 }
             } else {
@@ -151,13 +144,7 @@ impl Session {
                 println!("Error: {}", err_msg);
                 self.ctx.set_err_msg(err_msg);
                 proceed_error(&mut self.ctx);
-
-                if let Err(error) = self.client.send(self.ctx.get_response()) {
-                    println!("Error while sending response: {}", Error::from(error).to_string());
-                    return Action::Break;
-                };
-
-                return Action::Continue;
+                return self.send_response();
             }
         }
 
@@ -170,26 +157,19 @@ impl Session {
     }
 
     fn handle_write_data(&mut self) -> Action {
-        if let Err(error) = self.client.send(self.ctx.get_response()) {
-            println!("Error while sending response: {}", Error::from(error).to_string());
+        if let Action::Break = self.send_response() {
             return Action::Break;
         }
 
         if let SessionState::Writing(writer) = &mut self.state {
-            match writer.write_chunk(self.ctx.get_data_chunk(false)) {
+            match writer.write_chunk(self.ctx.get_data_chunk()) {
                 Ok(()) => (),
                 Err(error) => {
                     let err_msg = Error::from(error).to_string().as_str().to_owned();
                     println!("Error: {}", err_msg);
                     self.ctx.set_err_msg(err_msg);
                     proceed_error(&mut self.ctx);
-
-                    if let Err(error) = self.client.send(self.ctx.get_response()) {
-                        println!("Error while sending response: {}", Error::from(error).to_string());
-                        return Action::Break;
-                    };
-
-                    return Action::Continue;
+                    return self.send_response();
                 }
             };
         }
@@ -199,8 +179,7 @@ impl Session {
     }
 
     fn handle_end(&mut self) -> Action {
-        if let Err(error) = self.client.send(self.ctx.get_response()) {
-            println!("Error while sending response: {}", Error::from(error).to_string());
+        if let Action::Break = self.send_response() {
             return Action::Break;
         }
 
@@ -212,13 +191,7 @@ impl Session {
                     println!("Error: {}", err_msg);
                     self.ctx.set_err_msg(err_msg);
                     proceed_error(&mut self.ctx);
-
-                    if let Err(error) = self.client.send(self.ctx.get_response()) {
-                        println!("Error while sending response: {}", Error::from(error).to_string());
-                        return Action::Break;
-                    };
-
-                    return Action::Continue;
+                    return self.send_response();
                 }
             };
         }
@@ -230,8 +203,7 @@ impl Session {
     }
 
     fn handle_cancel(&mut self) -> Action {
-        if let Err(error) = self.client.send(self.ctx.get_response()) {
-            println!("Error while sending response: {}", Error::from(error).to_string());
+        if let Action::Break = self.send_response() {
             return Action::Break;
         }
 
@@ -244,13 +216,7 @@ impl Session {
                     println!("Error: {}", err_msg);
                     self.ctx.set_err_msg(err_msg);
                     proceed_error(&mut self.ctx);
-
-                    if let Err(error) = self.client.send(self.ctx.get_response()) {
-                        println!("Error while sending response: {}", Error::from(error).to_string());
-                        return Action::Break;
-                    };
-
-                    return Action::Continue;
+                    return self.send_response();
                 }
             }
         };
@@ -264,13 +230,7 @@ impl Session {
                     println!("Error: {}", err_msg);
                     self.ctx.set_err_msg(err_msg);
                     proceed_error(&mut self.ctx);
-
-                    if let Err(error) = self.client.send(self.ctx.get_response()) {
-                        println!("Error while sending response: {}", Error::from(error).to_string());
-                        return Action::Break;
-                    };
-
-                    return Action::Continue;
+                    return self.send_response();
                 }
             }
         }
@@ -280,10 +240,9 @@ impl Session {
     }
 
     fn handle_none(&mut self) -> Action {
-        if let Err(error) = self.client.send(self.ctx.get_response()) {
-            println!("Error while sending response: {}", Error::from(error).to_string());
+        if let Action::Break = self.send_response() {
             return Action::Break;
-        };
+        }
 
         if !self.new_request && self.ctx.get_started() {
             self.new_request = true;
@@ -304,9 +263,31 @@ impl Session {
                     }
                 };
 
-                self.request = buffer[..size].to_vec();
-            }
+                let crc_bytes: &[u8; 4] = match <&[u8; 4]>::try_from(&buffer[..4]) {
+                    Ok(crc) => crc,
+                    Err(error) => panic!("Error while parsing CRC: {}", error),
+                };
+                let crc = u32::from_be_bytes(*crc_bytes);
+                let excepted_crc = hash(&buffer[4..size]);
+                if crc != excepted_crc {
+                    println!("CRC mismatch");
+                    proceed_retry(&mut self.ctx);
+                    if let Action::Break = self.send_response() {
+                        break;
+                    };
+                }
 
+                let nonce: &[u8; 12] = match <&[u8; 12]>::try_from(&buffer[4..16]) {
+                    Ok(nonce) => nonce,
+                    Err(error) => panic!("Error while parsing nonce: {}", error),
+                };
+
+                self.request = match self.cypher.decrypt(nonce, &buffer[16..size]) {
+                    Ok(data) => data,
+                    Err(error) => panic!("Error: {}", Error::from(error).to_string()),
+                };
+            }
+            
             let action = match proceed_request(&mut self.ctx, &self.request) {
                 ProtocolAction::SendError => {
                     self.handle_send_error();

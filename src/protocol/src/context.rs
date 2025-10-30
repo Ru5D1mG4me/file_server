@@ -22,14 +22,13 @@ struct FileState {
     size: u64,
     chunk_count: u32,
     current_chunk_id: u32,
-    previous_data_chunk: Vec<u8>,
-    current_data_chunk: Vec<u8>,
+    data_chunk: Vec<u8>,
 }
 
 impl FileState {
     fn new() -> FileState {
         FileState { is_open: false, path: String::new(), size: 0, chunk_count: 0, current_chunk_id: 0,
-            previous_data_chunk: Vec::new(), current_data_chunk: Vec::new() }
+            data_chunk: Vec::new() }
     }
 
     fn reset(&mut self) {
@@ -38,8 +37,7 @@ impl FileState {
         self.size = 0;
         self.chunk_count = 0;
         self.current_chunk_id = 0;
-        self.previous_data_chunk = Vec::new();
-        self.current_data_chunk = Vec::new();
+        self.data_chunk = Vec::new();
     }
 }
 
@@ -73,10 +71,7 @@ impl ProtocolContext {
     pub fn get_file_size(&self) -> u64 { self.file.size }
     pub fn get_chunk_count(&self) -> u32 { self.file.chunk_count }
     pub fn get_current_chunk_id(&self) -> u32 { self.file.current_chunk_id }
-    pub fn get_data_chunk(&self, is_previous: bool) -> &[u8] {
-        if is_previous { return &self.file.previous_data_chunk; }
-        &self.file.current_data_chunk
-    }
+    pub fn get_data_chunk(&self) -> &[u8] { &self.file.data_chunk }
 
     pub fn set_started(&mut self, started: bool) { self.meta.started = started; }
     pub fn set_current_method(&mut self, method: u8) { self.meta.current_method = method; }
@@ -87,8 +82,5 @@ impl ProtocolContext {
     pub fn set_file_size(&mut self, file_size: u64) { self.file.size = file_size; }
     pub fn set_chunk_count(&mut self, chunk_count: u32) { self.file.chunk_count = chunk_count; }
     pub fn increment_current_chunk_id(&mut self) { self.file.current_chunk_id += 1; }
-    pub fn set_data_chunk(&mut self, data_chunk: Vec<u8>) {
-        self.file.previous_data_chunk = std::mem::take(&mut self.file.current_data_chunk);
-        self.file.current_data_chunk = data_chunk;
-    }
+    pub fn set_data_chunk(&mut self, data_chunk: Vec<u8>) { self.file.data_chunk = data_chunk; }
 }

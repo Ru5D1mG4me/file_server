@@ -7,12 +7,8 @@ use std::result::Result;
 pub enum NetworkError {
     BindFailed,
     ConnectionFailed,
-    ConnectionAborted,
     SendFailed,
-    NotAllDataSent,
     ReceiveFailed,
-    CloseFailed,
-    InvalidPacket,
     SetTimeoutFailed,
     CloneFailed,
 }
@@ -22,12 +18,8 @@ impl From<NetworkError> for Error {
         match error {
             NetworkError::BindFailed => Error::new(ErrorKind::Other, "Failed to bind to address"),
             NetworkError::ConnectionFailed => Error::new(ErrorKind::Other, "Connection failed"),
-            NetworkError::ConnectionAborted => Error::new(ErrorKind::ConnectionAborted, "Connection aborted"),
             NetworkError::SendFailed => Error::new(ErrorKind::Other, "Send failed"),
-            NetworkError::NotAllDataSent => Error::new(ErrorKind::Other, "Not all data sent"),
             NetworkError::ReceiveFailed => Error::new(ErrorKind::Other, "Receive failed"),
-            NetworkError::CloseFailed => Error::new(ErrorKind::Other, "Close failed"),
-            NetworkError::InvalidPacket => Error::new(ErrorKind::Other, "Invalid packet"),
             NetworkError::SetTimeoutFailed => Error::new(ErrorKind::Other, "Set timeout failed"),
             NetworkError::CloneFailed => Error::new(ErrorKind::Other, "Clone failed"),
         }
